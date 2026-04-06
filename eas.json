@@ -6,7 +6,9 @@
   "build": {
     "preview": {
       "distribution": "internal",
-      "channel": "preview",
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://backendfintech-production.up.railway.app"
+      },
       "android": {
         "buildType": "apk"
       },
@@ -15,7 +17,9 @@
       }
     },
     "production": {
-      "channel": "production",
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://backendfintech-production.up.railway.app"
+      },
       "android": {
         "buildType": "app-bundle"
       },
