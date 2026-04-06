@@ -1,5 +1,0 @@
-ALTER TABLE savings_goals
-  ADD COLUMN IF NOT EXISTS currency CHAR(3);
-
-ALTER TABLE budgets
-  ADD COLUMN IF NOT EXISTS currency CHAR(3);

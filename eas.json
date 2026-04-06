@@ -7,7 +7,6 @@
     "preview": {
       "distribution": "internal",
       "channel": "preview",
-      "image": "latest",
       "android": {
         "buildType": "apk"
       },
@@ -17,7 +16,6 @@
     },
     "production": {
       "channel": "production",
-      "image": "latest",
       "android": {
         "buildType": "app-bundle"
       },

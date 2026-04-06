@@ -78,23 +78,12 @@ CI never runs the **`production`** profile; that profile exists only for manual 
 ├── app.json                     # Expo config (name, splash, icons, bundle ids)
 ├── eas.json                     # EAS Build: preview (APK) + production (AAB)
 ├── .github/workflows/
-│   └── eas-preview.yml          # CI: EAS preview iOS + Android (ignores backend/**)
+│   └── eas-preview.yml          # CI: EAS preview iOS + Android
 ├── App.tsx                      # Root component, providers, LottieSplashGate
 ├── index.ts                     # Entry — preventAutoHideAsync + registerRootComponent
 ├── assets/
 │   ├── Finance.json             # Lottie animated splash
 │   └── icon.png                 # App icon (launcher + store)
-├── backend/
-│   ├── cmd/server/main.go       # HTTP server + router setup
-│   ├── internal/
-│   │   ├── db/                  # pgx pool connection
-│   │   ├── handlers/            # auth, transactions, goals, budgets, challenge, user, dashboard
-│   │   ├── middleware/          # JWT auth, CORS
-│   │   └── models/              # Go structs matching DB schema
-│   ├── migrations/              # Versioned SQL migrations (up + down)
-│   ├── Dockerfile
-│   ├── docker-compose.yml
-│   └── Makefile
 └── src/
     ├── components/
     │   ├── common/              # FadeSlide, LoadingSpinner, EmptyState, PinPad, SyncErrorBanner, etc.
@@ -137,6 +126,8 @@ CI never runs the **`production`** profile; that profile exists only for manual 
         ├── goalBudgetMap.ts
         └── appAlert.ts          # Themed Alert wrapper
 ```
+
+The **Go API** (Postgres, Docker, migrations) lives in a **separate git repository** and is deployed to Railway — it is not part of this tree.
 
 ---
 
@@ -249,31 +240,9 @@ npx expo start --ios     # iOS simulator
 npx expo start --android # Android emulator
 ```
 
-### Backend (local)
+### Backend (separate repo)
 
-**Option A — Docker Compose (no Go install needed)**
-```bash
-cd backend
-cp .env.example .env    # set JWT_SECRET
-make docker-up
-```
-
-**Option B — Go directly**
-```bash
-cd backend
-cp .env.example .env    # set DATABASE_URL + JWT_SECRET
-make migrate-up         # requires golang-migrate CLI
-make run
-```
-
-### Backend .env
-
-```env
-DATABASE_URL=postgres://user:pass@localhost:5432/fintech?sslmode=disable
-JWT_SECRET=change_me_to_a_long_random_string_at_least_32_chars
-PORT=8080
-CORS_ORIGINS=*
-```
+The **Go + PostgreSQL** API is not in this repository — use your backend repo for local dev (`docker compose`, `make run`, migrations) and Railway deploys. Point `EXPO_PUBLIC_API_URL` in `.env` at that API (production or localhost).
 
 ---
 
