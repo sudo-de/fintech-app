@@ -47,5 +47,21 @@ jobs:
           eas-version: latest
           token: ${{ secrets.EXPO_TOKEN }}
 
+      # Non-interactive eas build requires a linked EAS project. Prefer committing
+      # expo.extra.eas.projectId in app.json (eas init locally). Alternatively set
+      # EAS_PROJECT_ID in the same GitHub Environment as EXPO_TOKEN (e.g. production).
+      - name: Link EAS project if needed
+        env:
+          EAS_PROJECT_ID: ${{ secrets.EAS_PROJECT_ID }}
+        run: |
+          if node -e "const p=require('./app.json').expo?.extra?.eas?.projectId; process.exit(p?0:1)"; then
+            echo "EAS projectId already present in app.json"
+          elif [ -n "$EAS_PROJECT_ID" ]; then
+            eas init --id "$EAS_PROJECT_ID" --non-interactive --force
+          else
+            echo "::error::EAS project not configured. Run eas login && eas init locally and commit app.json, or add repository/environment secret EAS_PROJECT_ID (Expo project UUID from expo.dev)."
+            exit 1
+          fi
+
       - name: Queue preview builds (Android APK + iOS)
         run: eas build --profile preview --platform all --non-interactive --no-wait
