@@ -1,10 +1,10 @@
-import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useRef } from 'react';
+import { Animated, Easing, StyleSheet, Text, View } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import { NoSpendChallenge } from '../../types';
-import { Transaction } from '../../types';
-import { GradientCard } from '../common/GradientCard';
-import { COLORS, FONTS, SPACING, RADIUS } from '../../constants/colors';
+import { NoSpendChallenge, Transaction } from '../../types';
+import { FONTS, SPACING, RADIUS } from '../../constants/colors';
+import { useTheme } from '../../context/ThemeContext';
 import { getNoSpendStreakDays } from '../../utils/calculations';
 
 interface NoSpendChallengeCardProps {
@@ -13,6 +13,7 @@ interface NoSpendChallengeCardProps {
 }
 
 export function NoSpendChallengeCard({ challenge, transactions }: NoSpendChallengeCardProps) {
+  const { colors } = useTheme();
   const streakDays = getNoSpendStreakDays(transactions, challenge.startDate);
   const totalDays = challenge.durationDays;
   const progress = Math.min(streakDays / totalDays, 1);
@@ -21,142 +22,208 @@ export function NoSpendChallengeCard({ challenge, transactions }: NoSpendChallen
   const today = new Date();
   const start = new Date(challenge.startDate);
   const daysSinceStart = Math.floor((today.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
-  const dayTiles = Array.from({ length: Math.min(totalDays, 14) }, (_, i) => {
-    const isInStreak = i < streakDays;
-    const isToday = i === daysSinceStart;
-    return { day: i + 1, isInStreak, isToday };
-  });
+  const daysRemaining = Math.max(0, totalDays - daysSinceStart - 1);
+
+  const barAnim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.timing(barAnim, {
+      toValue: progress * 100,
+      duration: 900,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: false,
+    }).start();
+  }, [progress]);
+
+  const barWidth = barAnim.interpolate({ inputRange: [0, 100], outputRange: ['0%', '100%'] });
+
+  const tileCount = Math.min(totalDays, 21);
+  const tiles = Array.from({ length: tileCount }, (_, i) => ({
+    day: i + 1,
+    done: i < streakDays,
+    isToday: i === daysSinceStart,
+  }));
+
+  const gradColors: [string, string] = isComplete
+    ? ['#FFB30030', '#FFB30008']
+    : [`${colors.primary}20`, `${colors.primary}06`];
+  const borderColor = isComplete ? '#FFB30050' : `${colors.primary}35`;
+  const accentColor = isComplete ? '#FFB300' : colors.primary;
 
   return (
-    <GradientCard colors={isComplete ? COLORS.gradients.gold : ['#1C2040', '#252A50']} style={styles.card}>
+    <View style={[styles.cardWrap, { backgroundColor: colors.card, borderColor }]}>
+      <LinearGradient
+        colors={gradColors}
+        style={StyleSheet.absoluteFill}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+      />
+      <View style={styles.cardInner}>
+      {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.emoji}>{isComplete ? '🏆' : '🎯'}</Text>
-        <View style={styles.headerText}>
-          <Text style={styles.title}>No-Spend Challenge</Text>
-          <Text style={styles.subtitle}>{totalDays}-day challenge</Text>
+        <View style={[styles.iconWrap, { backgroundColor: `${accentColor}22` }]}>
+          <Ionicons
+            name={isComplete ? 'trophy' : 'flame'}
+            size={22}
+            color={accentColor}
+          />
         </View>
-        {isComplete && (
-          <View style={styles.badge}>
-            <Text style={styles.badgeText}>Complete!</Text>
+        <View style={styles.headerInfo}>
+          <Text style={[styles.title, { color: colors.textPrimary }]}>No-spend challenge</Text>
+          <Text style={[styles.subtitle, { color: colors.textTertiary }]}>{totalDays}-day streak</Text>
+        </View>
+        {isComplete ? (
+          <View style={[styles.badge, { backgroundColor: '#FFB30025', borderColor: '#FFB30060' }]}>
+            <Ionicons name="checkmark-circle" size={12} color="#FFB300" />
+            <Text style={[styles.badgeText, { color: '#FFB300' }]}>Done!</Text>
+          </View>
+        ) : (
+          <View style={[styles.badge, { backgroundColor: `${colors.primary}18`, borderColor: `${colors.primary}40` }]}>
+            <Text style={[styles.badgeText, { color: colors.primary }]}>{daysRemaining}d left</Text>
           </View>
         )}
       </View>
 
+      {/* Big streak number */}
       <View style={styles.streakRow}>
-        <Text style={styles.streakNumber}>{streakDays}</Text>
-        <Text style={styles.streakLabel}>day{streakDays !== 1 ? 's' : ''} streak</Text>
+        <Text style={[styles.streakNum, { color: accentColor }]}>{streakDays}</Text>
+        <View style={styles.streakMeta}>
+          <Text style={[styles.streakLabel, { color: colors.textPrimary }]}>
+            day{streakDays !== 1 ? 's' : ''}
+          </Text>
+          <Text style={[styles.streakSub, { color: colors.textSecondary }]}>
+            of {totalDays} target
+          </Text>
+        </View>
       </View>
 
-      <View style={styles.progressTrack}>
-        <View style={[styles.progressFill, { width: `${progress * 100}%` }]} />
+      {/* Progress bar */}
+      <View style={[styles.track, { backgroundColor: `${accentColor}20` }]}>
+        <Animated.View style={[styles.fill, { width: barWidth, backgroundColor: accentColor }]} />
       </View>
-      <Text style={styles.progressLabel}>{streakDays} of {totalDays} days</Text>
+      <Text style={[styles.progressLabel, { color: colors.textTertiary }]}>
+        {Math.round(progress * 100)}% complete
+      </Text>
 
-      {dayTiles.length > 0 && (
-        <View style={styles.tiles}>
-          {dayTiles.map((tile) => (
+      {/* Day tiles */}
+      {tiles.length > 0 && (
+        <View style={styles.tilesWrap}>
+          {tiles.map((tile) => (
             <View
               key={tile.day}
               style={[
                 styles.tile,
-                tile.isInStreak && styles.tileActive,
-                tile.isToday && styles.tileToday,
+                { backgroundColor: tile.done ? accentColor : `${accentColor}15` },
+                tile.isToday && !tile.done && { borderWidth: 1.5, borderColor: accentColor },
               ]}
             >
-              <Ionicons
-                name={tile.isInStreak ? 'checkmark' : 'remove'}
-                size={10}
-                color={tile.isInStreak ? '#fff' : COLORS.textTertiary}
-              />
+              {tile.done ? (
+                <Ionicons name="checkmark" size={9} color="#fff" />
+              ) : tile.isToday ? (
+                <Ionicons name="ellipse" size={5} color={accentColor} />
+              ) : null}
             </View>
           ))}
         </View>
       )}
-    </GradientCard>
+      </View>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  card: { marginBottom: SPACING.md },
+  cardWrap: {
+    borderRadius: RADIUS.xl,
+    borderWidth: 1,
+    marginBottom: SPACING.md,
+    overflow: 'hidden',
+  },
+  cardInner: {
+    padding: SPACING.lg,
+  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: SPACING.lg,
     gap: SPACING.sm,
+    marginBottom: SPACING.lg,
   },
-  emoji: { fontSize: 28 },
-  headerText: { flex: 1 },
+  iconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: RADIUS.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  headerInfo: { flex: 1 },
   title: {
-    fontSize: FONTS.sizes.lg,
+    fontSize: FONTS.sizes.md,
     fontWeight: '700',
-    color: COLORS.textPrimary,
   },
   subtitle: {
     fontSize: FONTS.sizes.xs,
-    color: COLORS.textSecondary,
-    marginTop: 1,
+    fontWeight: '500',
+    marginTop: 2,
   },
   badge: {
-    backgroundColor: COLORS.income,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
     paddingHorizontal: SPACING.sm,
-    paddingVertical: 3,
+    paddingVertical: 4,
     borderRadius: RADIUS.full,
+    borderWidth: 1,
   },
   badgeText: {
-    fontSize: FONTS.sizes.xs,
-    fontWeight: '700',
-    color: '#fff',
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.3,
   },
   streakRow: {
     flexDirection: 'row',
-    alignItems: 'baseline',
-    gap: SPACING.sm,
+    alignItems: 'center',
+    gap: SPACING.md,
     marginBottom: SPACING.md,
   },
-  streakNumber: {
-    fontSize: 48,
+  streakNum: {
+    fontSize: 52,
     fontWeight: '800',
-    color: COLORS.textPrimary,
+    letterSpacing: -2,
+    lineHeight: 56,
   },
+  streakMeta: { gap: 2 },
   streakLabel: {
-    fontSize: FONTS.sizes.md,
-    color: COLORS.textSecondary,
+    fontSize: FONTS.sizes.lg,
+    fontWeight: '700',
   },
-  progressTrack: {
-    height: 6,
-    backgroundColor: 'rgba(255,255,255,0.15)',
+  streakSub: {
+    fontSize: FONTS.sizes.xs,
+    fontWeight: '500',
+  },
+  track: {
+    height: 8,
     borderRadius: RADIUS.full,
-    marginBottom: SPACING.xs,
     overflow: 'hidden',
+    marginBottom: SPACING.xs,
   },
-  progressFill: {
+  fill: {
     height: '100%',
-    backgroundColor: COLORS.secondary,
     borderRadius: RADIUS.full,
   },
   progressLabel: {
     fontSize: FONTS.sizes.xs,
-    color: COLORS.textSecondary,
+    fontWeight: '600',
     marginBottom: SPACING.md,
   },
-  tiles: {
+  tilesWrap: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: SPACING.xs,
+    gap: 4,
   },
   tile: {
-    width: 22,
-    height: 22,
-    borderRadius: 5,
-    backgroundColor: 'rgba(255,255,255,0.08)',
+    width: 24,
+    height: 24,
+    borderRadius: 6,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  tileActive: {
-    backgroundColor: COLORS.secondary,
-  },
-  tileToday: {
-    borderWidth: 1.5,
-    borderColor: COLORS.textPrimary,
   },
 });

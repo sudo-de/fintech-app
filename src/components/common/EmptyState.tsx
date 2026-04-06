@@ -1,7 +1,8 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { COLORS, FONTS, SPACING } from '../../constants/colors';
+import { FONTS, SPACING } from '../../constants/colors';
+import { useTheme } from '../../context/ThemeContext';
 
 interface EmptyStateProps {
   icon: keyof typeof Ionicons.glyphMap;
@@ -10,13 +11,16 @@ interface EmptyStateProps {
 }
 
 export function EmptyState({ icon, title, subtitle }: EmptyStateProps) {
+  const { colors } = useTheme();
   return (
     <View style={styles.container}>
-      <View style={styles.iconContainer}>
-        <Ionicons name={icon} size={48} color={COLORS.textTertiary} />
+      <View style={[styles.iconContainer, { backgroundColor: colors.card }]}>
+        <Ionicons name={icon} size={48} color={colors.textTertiary} />
       </View>
-      <Text style={styles.title}>{title}</Text>
-      {subtitle && <Text style={styles.subtitle}>{subtitle}</Text>}
+      <Text style={[styles.title, { color: colors.textPrimary }]}>{title}</Text>
+      {subtitle ? (
+        <Text style={[styles.subtitle, { color: colors.textSecondary }]}>{subtitle}</Text>
+      ) : null}
     </View>
   );
 }
@@ -33,7 +37,6 @@ const styles = StyleSheet.create({
     width: 96,
     height: 96,
     borderRadius: 48,
-    backgroundColor: COLORS.card,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: SPACING.xl,
@@ -41,13 +44,11 @@ const styles = StyleSheet.create({
   title: {
     fontSize: FONTS.sizes.lg,
     fontWeight: '600',
-    color: COLORS.textPrimary,
     textAlign: 'center',
     marginBottom: SPACING.sm,
   },
   subtitle: {
     fontSize: FONTS.sizes.md,
-    color: COLORS.textSecondary,
     textAlign: 'center',
     lineHeight: 22,
   },

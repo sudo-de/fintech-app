@@ -10,18 +10,24 @@ import { AppState, AppAction, Transaction, SavingsGoal, Budget, NoSpendChallenge
 import { appReducer, initialState } from './appReducer';
 import { loadState, saveState } from '../storage/storage';
 
+type NewTransactionInput = Omit<Transaction, 'id'> & { id?: string };
+
 interface AppContextValue {
   state: AppState;
   dispatch: React.Dispatch<AppAction>;
-  addTransaction: (t: Omit<Transaction, 'id'>) => void;
+  addTransaction: (t: NewTransactionInput) => void;
+  setTransactions: (list: Transaction[]) => void;
   updateTransaction: (t: Transaction) => void;
   deleteTransaction: (id: string) => void;
-  addSavingsGoal: (g: Omit<SavingsGoal, 'id' | 'createdAt'>) => void;
+  addSavingsGoal: (g: Omit<SavingsGoal, 'id' | 'createdAt'> | SavingsGoal) => void;
+  setSavingsGoals: (list: SavingsGoal[]) => void;
   deleteSavingsGoal: (id: string) => void;
-  addBudget: (b: Omit<Budget, 'id'>) => void;
+  addBudget: (b: Omit<Budget, 'id'> | Budget) => void;
+  setBudgets: (list: Budget[]) => void;
   updateBudget: (b: Budget) => void;
   deleteBudget: (id: string) => void;
-  setNoSpendChallenge: (c: Omit<NoSpendChallenge, 'id'> | null) => void;
+  /** Pass a full challenge (e.g. from API with `id`) or local fields without `id`. */
+  setNoSpendChallenge: (c: NoSpendChallenge | Omit<NoSpendChallenge, 'id'> | null) => void;
   setInitialBalance: (amount: number) => void;
 }
 
@@ -56,8 +62,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     saveState(persistable);
   }, [state]);
 
-  const addTransaction = useCallback((t: Omit<Transaction, 'id'>) => {
-    dispatch({ type: 'ADD_TRANSACTION', payload: { ...t, id: generateId() } });
+  const addTransaction = useCallback((t: NewTransactionInput) => {
+    const id = t.id !== undefined && t.id !== '' ? t.id : generateId();
+    dispatch({
+      type: 'ADD_TRANSACTION',
+      payload: { ...t, id },
+    });
+  }, []);
+
+  const setTransactions = useCallback((list: Transaction[]) => {
+    dispatch({ type: 'SET_TRANSACTIONS', payload: list });
   }, []);
 
   const updateTransaction = useCallback((t: Transaction) => {
@@ -68,19 +82,34 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     dispatch({ type: 'DELETE_TRANSACTION', payload: id });
   }, []);
 
-  const addSavingsGoal = useCallback((g: Omit<SavingsGoal, 'id' | 'createdAt'>) => {
-    dispatch({
-      type: 'ADD_SAVINGS_GOAL',
-      payload: { ...g, id: generateId(), createdAt: new Date().toISOString() },
-    });
+  const addSavingsGoal = useCallback((g: Omit<SavingsGoal, 'id' | 'createdAt'> | SavingsGoal) => {
+    const payload: SavingsGoal =
+      'createdAt' in g && g.createdAt && 'id' in g && g.id
+        ? (g as SavingsGoal)
+        : {
+            ...(g as Omit<SavingsGoal, 'id' | 'createdAt'>),
+            id: generateId(),
+            createdAt: new Date().toISOString(),
+          };
+    dispatch({ type: 'ADD_SAVINGS_GOAL', payload });
+  }, []);
+
+  const setSavingsGoals = useCallback((list: SavingsGoal[]) => {
+    dispatch({ type: 'SET_SAVINGS_GOALS', payload: list });
   }, []);
 
   const deleteSavingsGoal = useCallback((id: string) => {
     dispatch({ type: 'DELETE_SAVINGS_GOAL', payload: id });
   }, []);
 
-  const addBudget = useCallback((b: Omit<Budget, 'id'>) => {
-    dispatch({ type: 'ADD_BUDGET', payload: { ...b, id: generateId() } });
+  const addBudget = useCallback((b: Omit<Budget, 'id'> | Budget) => {
+    const payload: Budget =
+      'id' in b && b.id ? (b as Budget) : { ...(b as Omit<Budget, 'id'>), id: generateId() };
+    dispatch({ type: 'ADD_BUDGET', payload });
+  }, []);
+
+  const setBudgets = useCallback((list: Budget[]) => {
+    dispatch({ type: 'SET_BUDGETS', payload: list });
   }, []);
 
   const updateBudget = useCallback((b: Budget) => {
@@ -91,11 +120,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     dispatch({ type: 'DELETE_BUDGET', payload: id });
   }, []);
 
-  const setNoSpendChallenge = useCallback((c: Omit<NoSpendChallenge, 'id'> | null) => {
-    dispatch({
-      type: 'SET_NO_SPEND_CHALLENGE',
-      payload: c ? { ...c, id: generateId() } : null,
-    });
+  const setNoSpendChallenge = useCallback((c: NoSpendChallenge | Omit<NoSpendChallenge, 'id'> | null) => {
+    if (c === null) {
+      dispatch({ type: 'SET_NO_SPEND_CHALLENGE', payload: null });
+      return;
+    }
+    const payload: NoSpendChallenge =
+      'id' in c && c.id ? (c as NoSpendChallenge) : { ...c, id: generateId() };
+    dispatch({ type: 'SET_NO_SPEND_CHALLENGE', payload });
   }, []);
 
   const setInitialBalance = useCallback((amount: number) => {
@@ -108,11 +140,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         state,
         dispatch,
         addTransaction,
+        setTransactions,
         updateTransaction,
         deleteTransaction,
         addSavingsGoal,
+        setSavingsGoals,
         deleteSavingsGoal,
         addBudget,
+        setBudgets,
         updateBudget,
         deleteBudget,
         setNoSpendChallenge,

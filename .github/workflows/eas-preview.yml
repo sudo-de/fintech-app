@@ -1,0 +1,51 @@
+name: EAS Preview (iOS + Android)
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'App.tsx'
+      - 'index.ts'
+      - 'app.json'
+      - 'eas.json'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.easignore'
+      - 'assets/**'
+      - 'src/**'
+      - 'babel.config.js'
+      - 'tsconfig.json'
+      - '.github/workflows/eas-preview.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: eas-preview-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: eas build — preview (all platforms)
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Setup Expo & EAS
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Queue preview builds (Android APK + iOS)
+        run: eas build --profile preview --platform all --non-interactive --no-wait

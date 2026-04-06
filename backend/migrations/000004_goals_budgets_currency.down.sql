@@ -1,0 +1,2 @@
+ALTER TABLE savings_goals DROP COLUMN IF EXISTS currency;
+ALTER TABLE budgets DROP COLUMN IF EXISTS currency;

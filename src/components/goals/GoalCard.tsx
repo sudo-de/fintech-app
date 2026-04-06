@@ -1,116 +1,215 @@
-import React from 'react';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import React, { useEffect, useMemo, useRef } from 'react';
+import { Animated, Easing, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SavingsGoal } from '../../types';
-import { FlatCard } from '../common/GradientCard';
-import { COLORS, FONTS, SPACING, RADIUS } from '../../constants/colors';
-import { formatCurrency, formatMonth } from '../../utils/formatters';
+import { FONTS, SPACING, RADIUS } from '../../constants/colors';
+import { formatMonth, getCurrentMonth } from '../../utils/formatters';
+import { useCurrency } from '../../context/CurrencyContext';
+import { convertCurrency } from '../../utils/exchangeRates';
+import { useTheme } from '../../context/ThemeContext';
+import { getSavingsPaceInsight, SavingsPaceStatus } from '../../utils/calculations';
 
 interface GoalCardProps {
   goal: SavingsGoal;
-  currentSavings: number;
+  savedForMonth: number;
   onDelete: (id: string) => void;
 }
 
-export function GoalCard({ goal, currentSavings, onDelete }: GoalCardProps) {
-  const progress = Math.min(currentSavings / goal.targetAmount, 1);
+function paceShortLabel(status: SavingsPaceStatus): string {
+  switch (status) {
+    case 'achieved': return 'Goal reached';
+    case 'ahead':    return 'Ahead of pace';
+    case 'on_track': return 'On pace';
+    case 'behind':   return 'Catch up';
+    case 'past_miss':return 'Missed';
+    default: return '';
+  }
+}
+
+function paceIcon(status: SavingsPaceStatus): keyof typeof Ionicons.glyphMap {
+  switch (status) {
+    case 'achieved': return 'trophy';
+    case 'ahead':    return 'rocket-outline';
+    case 'on_track': return 'pulse-outline';
+    case 'behind':   return 'alert-circle-outline';
+    case 'past_miss':return 'time-outline';
+    default: return 'flag-outline';
+  }
+}
+
+export function GoalCard({ goal, savedForMonth, onDelete }: GoalCardProps) {
+  const { colors } = useTheme();
+  const { formatCurrency, currency: displayCurrency } = useCurrency();
+
+  // Convert target to the current display currency so progress is accurate
+  const targetInDisplay = useMemo(() => {
+    if (!goal.currency || goal.currency === displayCurrency.code) return goal.targetAmount;
+    return convertCurrency(goal.targetAmount, goal.currency, displayCurrency.code);
+  }, [goal.targetAmount, goal.currency, displayCurrency.code]);
+
+  const progress = Math.min(savedForMonth / (targetInDisplay || 1), 1);
   const percent = Math.round(progress * 100);
-  const isAchieved = currentSavings >= goal.targetAmount;
+  const isAchieved = savedForMonth >= targetInDisplay;
+  const isCurrentMonth = goal.month === getCurrentMonth();
+
+  const insight = useMemo(
+    () => isCurrentMonth
+      ? getSavingsPaceInsight(savedForMonth, targetInDisplay, goal.month)
+      : null,
+    [isCurrentMonth, savedForMonth, targetInDisplay, goal.month]
+  );
+
+  const paceTint = insight?.paceStatus === 'behind'
+    ? colors.warning
+    : insight?.paceStatus === 'ahead' || insight?.paceStatus === 'achieved'
+      ? colors.income
+      : colors.primary;
+
+  const fillColor = isAchieved ? colors.income : paceTint;
+
+  const barAnim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.timing(barAnim, {
+      toValue: Math.min(percent, 100),
+      duration: 750,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: false,
+    }).start();
+  }, [percent]);
+
+  const barWidth = barAnim.interpolate({ inputRange: [0, 100], outputRange: ['0%', '100%'] });
 
   return (
-    <FlatCard style={styles.card}>
+    <View style={[styles.card, { backgroundColor: colors.card, borderColor: isAchieved ? `${colors.income}40` : colors.border }]}>
+      {/* Header */}
       <View style={styles.header}>
-        <View style={styles.titleRow}>
-          <View style={[styles.iconBadge, { backgroundColor: isAchieved ? `${COLORS.income}20` : `${COLORS.primary}20` }]}>
-            <Ionicons
-              name={isAchieved ? 'trophy' : 'flag'}
-              size={18}
-              color={isAchieved ? COLORS.income : COLORS.primary}
-            />
-          </View>
-          <View style={styles.titleInfo}>
-            <Text style={styles.name}>{goal.name}</Text>
-            <Text style={styles.month}>{formatMonth(goal.month)}</Text>
-          </View>
+        <View style={[styles.iconBadge, { backgroundColor: isAchieved ? `${colors.income}18` : `${colors.primary}18` }]}>
+          <Ionicons
+            name={isAchieved ? 'trophy' : 'flag'}
+            size={20}
+            color={isAchieved ? colors.income : colors.primary}
+          />
         </View>
-        <TouchableOpacity onPress={() => onDelete(goal.id)} hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}>
-          <Ionicons name="trash-outline" size={18} color={COLORS.textTertiary} />
+        <View style={styles.titleBlock}>
+          <Text style={[styles.name, { color: colors.textPrimary }]} numberOfLines={1}>{goal.name}</Text>
+          <Text style={[styles.month, { color: colors.textTertiary }]}>{formatMonth(goal.month)}</Text>
+        </View>
+        <TouchableOpacity
+          onPress={() => onDelete(goal.id)}
+          hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}
+        >
+          <Ionicons name="trash-outline" size={16} color={colors.textTertiary} />
         </TouchableOpacity>
       </View>
 
+      {/* Pace chip */}
+      {insight && (
+        <View style={[styles.paceChip, { backgroundColor: `${paceTint}14`, borderColor: `${paceTint}35` }]}>
+          <Ionicons name={paceIcon(insight.paceStatus)} size={12} color={paceTint} />
+          <Text style={[styles.paceChipText, { color: paceTint }]}>
+            {paceShortLabel(insight.paceStatus)}
+          </Text>
+        </View>
+      )}
+
+      {/* Amounts */}
       <View style={styles.amounts}>
-        <Text style={styles.current}>{formatCurrency(currentSavings)}</Text>
-        <Text style={styles.target}>of {formatCurrency(goal.targetAmount)}</Text>
+        <Text style={[styles.saved, { color: colors.textPrimary }]}>{formatCurrency(savedForMonth)}</Text>
+        <Text style={[styles.target, { color: colors.textSecondary }]}>
+          {' '}/ {formatCurrency(targetInDisplay)}
+        </Text>
       </View>
 
-      <View style={styles.progressTrack}>
-        <View style={[styles.progressFill, { width: `${percent}%`, backgroundColor: isAchieved ? COLORS.income : COLORS.primary }]} />
+      {/* Animated progress bar */}
+      <View style={[styles.track, { backgroundColor: colors.divider }]}>
+        <Animated.View style={[styles.fill, { width: barWidth, backgroundColor: fillColor }]} />
       </View>
 
+      {/* Footer */}
       <View style={styles.footer}>
-        <Text style={[styles.percentLabel, { color: isAchieved ? COLORS.income : COLORS.primary }]}>
-          {percent}% {isAchieved ? '🎉 Goal achieved!' : 'saved'}
+        <Text style={[styles.pctLabel, { color: fillColor }]}>
+          {percent}%{isAchieved ? ' · Goal reached' : ' of target'}
         </Text>
-        <Text style={styles.remaining}>
+        <Text style={[styles.remaining, { color: colors.textSecondary }]}>
           {isAchieved
-            ? `+${formatCurrency(currentSavings - goal.targetAmount)} over`
-            : `${formatCurrency(goal.targetAmount - currentSavings)} to go`}
+            ? `+${formatCurrency(savedForMonth - targetInDisplay)} above`
+            : `${formatCurrency(Math.max(0, targetInDisplay - savedForMonth))} to go`}
         </Text>
       </View>
-    </FlatCard>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  card: { marginBottom: SPACING.md },
+  card: {
+    marginBottom: SPACING.md,
+    borderRadius: RADIUS.xl,
+    padding: SPACING.lg,
+    borderWidth: 1,
+  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: SPACING.lg,
+    gap: SPACING.sm,
+    marginBottom: SPACING.md,
   },
-  titleRow: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm },
   iconBadge: {
-    width: 40,
-    height: 40,
+    width: 42,
+    height: 42,
     borderRadius: RADIUS.md,
     alignItems: 'center',
     justifyContent: 'center',
+    flexShrink: 0,
   },
-  titleInfo: {},
+  titleBlock: { flex: 1, minWidth: 0 },
   name: {
     fontSize: FONTS.sizes.md,
     fontWeight: '700',
-    color: COLORS.textPrimary,
   },
   month: {
     fontSize: FONTS.sizes.xs,
-    color: COLORS.textSecondary,
-    marginTop: 1,
+    fontWeight: '500',
+    marginTop: 2,
+  },
+  paceChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: RADIUS.full,
+    borderWidth: 1,
+    marginBottom: SPACING.md,
+  },
+  paceChipText: {
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.3,
+    textTransform: 'uppercase',
   },
   amounts: {
     flexDirection: 'row',
     alignItems: 'baseline',
-    gap: SPACING.sm,
+    flexWrap: 'wrap',
     marginBottom: SPACING.md,
   },
-  current: {
-    fontSize: FONTS.sizes.xxl,
+  saved: {
+    fontSize: 30,
     fontWeight: '800',
-    color: COLORS.textPrimary,
+    letterSpacing: -0.8,
   },
   target: {
-    fontSize: FONTS.sizes.sm,
-    color: COLORS.textSecondary,
+    fontSize: FONTS.sizes.md,
+    fontWeight: '600',
   },
-  progressTrack: {
+  track: {
     height: 8,
-    backgroundColor: COLORS.border,
     borderRadius: RADIUS.full,
-    marginBottom: SPACING.sm,
     overflow: 'hidden',
+    marginBottom: SPACING.sm,
   },
-  progressFill: {
+  fill: {
     height: '100%',
     borderRadius: RADIUS.full,
   },
@@ -118,13 +217,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: SPACING.xs,
   },
-  percentLabel: {
+  pctLabel: {
     fontSize: FONTS.sizes.sm,
-    fontWeight: '600',
+    fontWeight: '700',
   },
   remaining: {
-    fontSize: FONTS.sizes.sm,
-    color: COLORS.textSecondary,
+    fontSize: FONTS.sizes.xs,
+    fontWeight: '600',
   },
 });

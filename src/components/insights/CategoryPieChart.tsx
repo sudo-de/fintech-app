@@ -1,70 +1,148 @@
-import React from 'react';
-import { Dimensions, StyleSheet, Text, View } from 'react-native';
-import { PieChart } from 'react-native-chart-kit';
-import { FlatCard } from '../common/GradientCard';
-import { COLORS, FONTS, SPACING } from '../../constants/colors';
+import React, { useEffect, useRef, useMemo } from 'react';
+import { Animated, Easing, StyleSheet, Text, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { FONTS, SPACING, RADIUS } from '../../constants/colors';
+import { useTheme } from '../../context/ThemeContext';
+import { useCurrency } from '../../context/CurrencyContext';
 import { CategoryTotal } from '../../utils/calculations';
 import { getCategoryInfo } from '../../constants/categories';
-import { formatCurrency } from '../../utils/formatters';
-
-const SCREEN_WIDTH = Dimensions.get('window').width;
 
 interface CategoryPieChartProps {
   data: CategoryTotal[];
+  periodLabel?: string;
 }
 
-export function CategoryPieChart({ data }: CategoryPieChartProps) {
+export function CategoryPieChart({ data, periodLabel }: CategoryPieChartProps) {
+  const { colors } = useTheme();
+  const { formatCurrency } = useCurrency();
+
+  const topCategories = useMemo(() => data.slice(0, 6), [data]);
+  const total = useMemo(() => topCategories.reduce((s, c) => s + c.amount, 0), [topCategories]);
+
+  // One animated opacity value for the whole bar row (simpler than per-segment stagger)
+  const barOpacity = useRef(new Animated.Value(0)).current;
+  // Per-segment scale anims (staggered)
+  const segAnims = useRef<Animated.Value[]>([]);
+
+  if (segAnims.current.length !== topCategories.length) {
+    segAnims.current = topCategories.map(() => new Animated.Value(0));
+  }
+
+  useEffect(() => {
+    barOpacity.setValue(0);
+    segAnims.current.forEach((a) => a.setValue(0));
+
+    const segAnimations = segAnims.current.map((anim, i) =>
+      Animated.timing(anim, {
+        toValue: 1,
+        duration: 500,
+        delay: i * 50,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: false,
+      })
+    );
+
+    Animated.parallel([
+      Animated.timing(barOpacity, {
+        toValue: 1,
+        duration: 300,
+        useNativeDriver: true,
+      }),
+      ...segAnimations,
+    ]).start();
+  }, [data]);
+
   if (data.length === 0) {
     return (
-      <FlatCard style={styles.card}>
-        <Text style={styles.title}>Spending by Category</Text>
+      <View
+        style={[
+          styles.card,
+          { backgroundColor: colors.card, borderColor: colors.border },
+        ]}
+      >
+        <Text style={[styles.title, { color: colors.textPrimary }]}>Category split</Text>
+        {periodLabel ? (
+          <Text style={[styles.subtitle, { color: colors.textTertiary }]}>{periodLabel}</Text>
+        ) : null}
         <View style={styles.empty}>
-          <Text style={styles.emptyText}>No expense data available</Text>
+          <Text style={[styles.emptyText, { color: colors.textTertiary }]}>
+            No expense data this period
+          </Text>
         </View>
-      </FlatCard>
+      </View>
     );
   }
 
-  const topCategories = data.slice(0, 6);
-  const chartData = topCategories.map((item) => {
-    const catInfo = getCategoryInfo(item.category);
-    return {
-      name: catInfo.label,
-      population: Math.round(item.amount * 100) / 100,
-      color: catInfo.color,
-      legendFontColor: COLORS.textSecondary,
-      legendFontSize: 12,
-    };
-  });
-
   return (
-    <FlatCard style={styles.card}>
-      <Text style={styles.title}>Spending by Category</Text>
-      <PieChart
-        data={chartData}
-        width={SCREEN_WIDTH - SPACING.xl * 2 - 40}
-        height={180}
-        chartConfig={{
-          color: (opacity = 1) => `rgba(255, 255, 255, ${opacity})`,
-        }}
-        accessor="population"
-        backgroundColor="transparent"
-        paddingLeft="10"
-        absolute={false}
-      />
+    <View
+      style={[
+        styles.card,
+        { backgroundColor: colors.card, borderColor: colors.border },
+      ]}
+    >
+      <Text style={[styles.title, { color: colors.textPrimary }]}>Category split</Text>
+      {periodLabel ? (
+        <Text style={[styles.subtitle, { color: colors.textTertiary }]}>{periodLabel}</Text>
+      ) : null}
+
+      {/* Stacked proportional bar */}
+      <Animated.View style={[styles.stackedBar, { opacity: barOpacity }]}>
+        {topCategories.map((item, i) => {
+          const catInfo = getCategoryInfo(item.category);
+          const sliceColor =
+            (colors.categories as Record<string, string>)[item.category] ?? catInfo.color;
+          const pct = total > 0 ? (item.amount / total) * 100 : 0;
+          const anim = segAnims.current[i];
+          const animatedFlex = anim
+            ? anim.interpolate({ inputRange: [0, 1], outputRange: [0, pct] })
+            : pct;
+
+          return (
+            <Animated.View
+              key={item.category}
+              style={[
+                styles.segment,
+                {
+                  flex: animatedFlex as any,
+                  backgroundColor: sliceColor,
+                },
+              ]}
+            />
+          );
+        })}
+      </Animated.View>
+
+      {/* Legend */}
       <View style={styles.legend}>
         {topCategories.map((item) => {
           const catInfo = getCategoryInfo(item.category);
+          const sliceColor =
+            (colors.categories as Record<string, string>)[item.category] ?? catInfo.color;
+          const pct = total > 0 ? Math.round((item.amount / total) * 100) : 0;
+
           return (
             <View key={item.category} style={styles.legendItem}>
-              <View style={[styles.legendDot, { backgroundColor: catInfo.color }]} />
-              <Text style={styles.legendLabel} numberOfLines={1}>{catInfo.label}</Text>
-              <Text style={styles.legendAmount}>{formatCurrency(item.amount)}</Text>
+              <View style={[styles.legendIconWrap, { backgroundColor: `${sliceColor}22` }]}>
+                <Ionicons
+                  name={catInfo.icon as keyof typeof Ionicons.glyphMap}
+                  size={14}
+                  color={sliceColor}
+                />
+              </View>
+              <Text style={[styles.legendLabel, { color: colors.textSecondary }]} numberOfLines={1}>
+                {catInfo.label}
+              </Text>
+              <Text style={[styles.legendAmount, { color: colors.textPrimary }]}>
+                {formatCurrency(item.amount)}
+              </Text>
+              <View style={[styles.pctPill, { backgroundColor: `${sliceColor}22` }]}>
+                <Text style={[styles.pctText, { color: sliceColor }]}>{pct}%</Text>
+              </View>
             </View>
           );
         })}
       </View>
-    </FlatCard>
+    </View>
   );
 }
 
@@ -72,47 +150,73 @@ const styles = StyleSheet.create({
   card: {
     marginHorizontal: SPACING.xl,
     marginBottom: SPACING.xl,
-    paddingHorizontal: SPACING.md,
+    padding: SPACING.lg,
+    borderRadius: RADIUS.xl,
+    borderWidth: 1,
   },
   title: {
     fontSize: FONTS.sizes.md,
-    fontWeight: '600',
-    color: COLORS.textPrimary,
+    fontWeight: '800',
+    marginBottom: 4,
+  },
+  subtitle: {
+    fontSize: FONTS.sizes.xs,
+    fontWeight: '500',
     marginBottom: SPACING.md,
-    paddingLeft: SPACING.sm,
+  },
+  stackedBar: {
+    flexDirection: 'row',
+    height: 14,
+    borderRadius: RADIUS.full,
+    overflow: 'hidden',
+    marginBottom: SPACING.lg,
+  },
+  segment: {
+    height: '100%',
   },
   empty: {
-    height: 180,
+    height: 160,
     alignItems: 'center',
     justifyContent: 'center',
   },
   emptyText: {
     fontSize: FONTS.sizes.sm,
-    color: COLORS.textTertiary,
+    fontWeight: '500',
   },
   legend: {
-    marginTop: SPACING.sm,
     gap: SPACING.sm,
   },
   legendItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingLeft: SPACING.sm,
     gap: SPACING.sm,
   },
-  legendDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
+  legendIconWrap: {
+    width: 28,
+    height: 28,
+    borderRadius: RADIUS.sm,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
   },
   legendLabel: {
     flex: 1,
     fontSize: FONTS.sizes.sm,
-    color: COLORS.textSecondary,
+    fontWeight: '500',
   },
   legendAmount: {
     fontSize: FONTS.sizes.sm,
-    fontWeight: '600',
-    color: COLORS.textPrimary,
+    fontWeight: '700',
+    flexShrink: 0,
+  },
+  pctPill: {
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: 2,
+    borderRadius: RADIUS.full,
+    flexShrink: 0,
+  },
+  pctText: {
+    fontSize: 11,
+    fontWeight: '800',
   },
 });

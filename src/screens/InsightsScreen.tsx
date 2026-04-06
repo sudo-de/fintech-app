@@ -1,13 +1,25 @@
-import React, { useMemo } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import React, { useMemo, useState } from 'react';
+import {
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useApp } from '../context/AppContext';
+import { useAuth } from '../context/AuthContext';
+import { LoadingOverlay } from '../components/common/LoadingOverlay';
+import { SyncErrorBanner } from '../components/common/SyncErrorBanner';
+import { useSyncTransactions } from '../hooks/useSyncTransactions';
 import { CategoryPieChart } from '../components/insights/CategoryPieChart';
 import { WeeklyBar } from '../components/insights/WeeklyBar';
 import { MonthlyTrend } from '../components/insights/MonthlyTrend';
-import { FlatCard } from '../components/common/GradientCard';
-import { COLORS, FONTS, SPACING, RADIUS } from '../constants/colors';
+import { CategoryRankBars } from '../components/insights/CategoryRankBars';
+import { TransactionMixCard } from '../components/insights/TransactionMixCard';
+import { FONTS, SPACING, RADIUS } from '../constants/colors';
 import {
   getCategoryTotals,
   getWeeklyComparison,
@@ -16,74 +28,124 @@ import {
   getTopSpendingCategory,
   getTotalExpenses,
   getTotalIncome,
+  getTransactionTypeMix,
 } from '../utils/calculations';
-import { getCurrentMonth, formatCurrency } from '../utils/formatters';
+import { formatMonth, getCurrentMonth } from '../utils/formatters';
+import { useCurrency } from '../context/CurrencyContext';
+import { useTheme } from '../context/ThemeContext';
+import { useConvertedTransactions } from '../hooks/useConvertedTransactions';
 import { getCategoryInfo } from '../constants/categories';
 
+type TipTone = 'income' | 'expense' | 'warning' | 'secondary' | 'primary';
+
 interface InsightTip {
-  icon: string;
-  color: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  tone: TipTone;
   title: string;
   body: string;
 }
 
+function shiftMonth(yearMonth: string, delta: -1 | 1): string {
+  const [y, m] = yearMonth.split('-').map(Number);
+  const d = new Date(y, m - 1 + delta, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
 export function InsightsScreen() {
-  const { state } = useApp();
+  const { state, setTransactions } = useApp();
   const { transactions } = state;
+  const { formatCurrency } = useCurrency();
+  const { colors } = useTheme();
+  const { token } = useAuth();
 
-  const month = getCurrentMonth();
+  // Convert all transaction amounts to display currency before calculating
+  const convertedTransactions = useConvertedTransactions(transactions);
 
-  const categoryTotals = useMemo(() => getCategoryTotals(transactions, 'expense', month), [transactions, month]);
-  const weeklyData = useMemo(() => getWeeklyComparison(transactions), [transactions]);
-  const monthlyTrend = useMemo(() => getMonthlyTrend(transactions, 6), [transactions]);
-  const savingsRate = useMemo(() => getSavingsRate(transactions, month), [transactions, month]);
-  const topCategory = useMemo(() => getTopSpendingCategory(transactions, month), [transactions, month]);
-  const totalExpenses = useMemo(() => getTotalExpenses(transactions, month), [transactions, month]);
-  const totalIncome = useMemo(() => getTotalIncome(transactions, month), [transactions, month]);
+  const [month, setMonth] = useState(getCurrentMonth());
+
+  const monthLabel = formatMonth(month);
+  const isCurrentMonth = month === getCurrentMonth();
+
+  const { isSyncing, isRefreshing, syncError, sync, clearError } = useSyncTransactions({
+    token,
+    setTransactions,
+  });
+
+  const categoryTotals = useMemo(
+    () => getCategoryTotals(convertedTransactions, 'expense', month),
+    [convertedTransactions, month]
+  );
+  const weeklyData = useMemo(
+    () => getWeeklyComparison(convertedTransactions, month),
+    [convertedTransactions, month]
+  );
+  const monthlyTrend = useMemo(
+    () => getMonthlyTrend(convertedTransactions, 6, month),
+    [convertedTransactions, month]
+  );
+  const savingsRate = useMemo(() => getSavingsRate(convertedTransactions, month), [convertedTransactions, month]);
+  const topCategory = useMemo(() => getTopSpendingCategory(convertedTransactions, month), [convertedTransactions, month]);
+  const totalExpenses = useMemo(() => getTotalExpenses(convertedTransactions, month), [convertedTransactions, month]);
+  const totalIncome = useMemo(() => getTotalIncome(convertedTransactions, month), [convertedTransactions, month]);
+  const typeMix = useMemo(() => getTransactionTypeMix(convertedTransactions, month), [convertedTransactions, month]);
 
   const topCategoryInfo = topCategory ? getCategoryInfo(topCategory) : null;
   const topCategoryTotal = categoryTotals.find((c) => c.category === topCategory);
 
-  // Generate smart tips
+  const toneColor = (tone: TipTone) => {
+    switch (tone) {
+      case 'income':
+        return colors.income;
+      case 'expense':
+        return colors.expense;
+      case 'warning':
+        return colors.warning;
+      case 'secondary':
+        return colors.secondary;
+      default:
+        return colors.primary;
+    }
+  };
+
   const tips = useMemo<InsightTip[]>(() => {
     const result: InsightTip[] = [];
 
     if (savingsRate >= 20) {
       result.push({
         icon: 'trophy',
-        color: COLORS.income,
-        title: 'Great savings rate!',
-        body: `You're saving ${Math.round(savingsRate)}% of your income this month. Financial experts recommend 20%+.`,
+        tone: 'income',
+        title: 'Great savings rate',
+        body: `You're saving ${Math.round(savingsRate)}% of income this month. Many planners aim for 20% or more.`,
       });
     } else if (savingsRate > 0) {
       result.push({
         icon: 'trending-up',
-        color: COLORS.warning,
+        tone: 'warning',
         title: 'Room to save more',
-        body: `Your savings rate is ${Math.round(savingsRate)}%. Try to increase it to 20% by reducing discretionary spending.`,
+        body: `Savings rate is ${Math.round(savingsRate)}%. Trimming discretionary spend is the fastest lever.`,
       });
     } else if (totalIncome > 0) {
       result.push({
         icon: 'warning',
-        color: COLORS.expense,
+        tone: 'expense',
         title: 'Spending exceeds income',
-        body: 'Your expenses are higher than income this month. Review your biggest spending categories.',
+        body: 'Expenses are higher than income this month. Check category bars for the biggest drivers.',
       });
     }
 
     if (weeklyData.change < -10) {
       result.push({
         icon: 'arrow-down-circle',
-        color: COLORS.income,
+        tone: 'income',
         title: 'Weekly spending down',
-        body: `You spent ${Math.abs(Math.round(weeklyData.change))}% less this week than last week. Great discipline!`,
+        body: `About ${Math.abs(Math.round(weeklyData.change))}% less this week than last week.`,
       });
     } else if (weeklyData.change > 30) {
       result.push({
         icon: 'alert-circle',
-        color: COLORS.expense,
-        title: 'Weekly spending spike',
-        body: `Spending is up ${Math.round(weeklyData.change)}% vs last week. Check what's driving this increase.`,
+        tone: 'expense',
+        title: 'Weekly spending up',
+        body: `Spending is up ${Math.round(weeklyData.change)}% vs last week — worth a quick review.`,
       });
     }
 
@@ -92,9 +154,9 @@ export function InsightsScreen() {
       if (pct > 40) {
         result.push({
           icon: 'pie-chart',
-          color: COLORS.warning,
-          title: `${topCategoryInfo.label} dominates spending`,
-          body: `${pct}% of your expenses go to ${topCategoryInfo.label}. Consider setting a budget for this category.`,
+          tone: 'warning',
+          title: `${topCategoryInfo.label} leads spending`,
+          body: `${pct}% of expenses are in ${topCategoryInfo.label}. A small cap there goes a long way.`,
         });
       }
     }
@@ -102,89 +164,194 @@ export function InsightsScreen() {
     if (result.length === 0) {
       result.push({
         icon: 'bulb',
-        color: COLORS.secondary,
-        title: 'Add more transactions',
-        body: 'Track your daily expenses to get personalized insights and tips about your spending habits.',
+        tone: 'secondary',
+        title: 'Keep logging',
+        body: 'More transactions mean sharper weekly and monthly patterns here.',
       });
     }
 
     return result;
   }, [savingsRate, weeklyData, topCategoryInfo, topCategoryTotal, totalExpenses, totalIncome]);
 
+  const savingsBarColor =
+    savingsRate >= 20 ? colors.income : savingsRate > 0 ? colors.warning : colors.expense;
+
+  const topCatThemeColor = topCategory
+    ? (colors.categories as Record<string, string>)[topCategory] ?? topCategoryInfo?.color
+    : undefined;
+
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scroll}>
-        {/* Header */}
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
+      {isSyncing && <LoadingOverlay message="Syncing transactions…" />}
+
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.scroll}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={() => sync({ refresh: true })}
+            tintColor={colors.primary}
+          />
+        }
+      >
+        {/* Header with month navigation */}
         <View style={styles.header}>
-          <Text style={styles.title}>Insights</Text>
-          <Text style={styles.subtitle}>Your financial patterns at a glance</Text>
+          <Text style={[styles.title, { color: colors.textPrimary }]}>Insights</Text>
+          <View style={styles.monthNav}>
+            <TouchableOpacity
+              style={[styles.navBtn, { backgroundColor: `${colors.primary}18` }]}
+              onPress={() => setMonth((m) => shiftMonth(m, -1))}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Ionicons name="chevron-back" size={16} color={colors.primary} />
+            </TouchableOpacity>
+
+            <Text style={[styles.monthLabel, { color: colors.textPrimary }]}>{monthLabel}</Text>
+
+            <TouchableOpacity
+              style={[
+                styles.navBtn,
+                { backgroundColor: `${colors.primary}18` },
+                isCurrentMonth && { opacity: 0.25 },
+              ]}
+              onPress={() => { if (!isCurrentMonth) setMonth((m) => shiftMonth(m, 1)); }}
+              disabled={isCurrentMonth}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Ionicons name="chevron-forward" size={16} color={colors.primary} />
+            </TouchableOpacity>
+          </View>
         </View>
 
-        {/* Key Metrics Row */}
-        <View style={styles.metricsRow}>
-          <FlatCard style={styles.metricCard}>
-            <Text style={styles.metricValue}>{Math.round(savingsRate)}%</Text>
-            <Text style={styles.metricLabel}>Savings Rate</Text>
-            <View style={[styles.metricBar, { backgroundColor: COLORS.border }]}>
-              <View style={[styles.metricBarFill, {
-                width: `${Math.min(savingsRate, 100)}%`,
-                backgroundColor: savingsRate >= 20 ? COLORS.income : savingsRate > 0 ? COLORS.warning : COLORS.expense,
-              }]} />
-            </View>
-          </FlatCard>
+        {syncError && (
+          <SyncErrorBanner
+            message={syncError}
+            onRetry={() => sync({ refresh: true })}
+            onDismiss={clearError}
+          />
+        )}
 
-          <FlatCard style={styles.metricCard}>
-            <Text style={styles.metricValue}>{categoryTotals.length}</Text>
-            <Text style={styles.metricLabel}>Categories</Text>
+        <View style={styles.metricsRow}>
+          <View
+            style={[
+              styles.metricCard,
+              { backgroundColor: colors.card, borderColor: colors.border },
+            ]}
+          >
+            <Text style={[styles.metricValue, { color: colors.textPrimary }]}>
+              {Math.round(savingsRate)}%
+            </Text>
+            <Text style={[styles.metricLabel, { color: colors.textSecondary }]}>Savings rate</Text>
+            <View style={[styles.metricBar, { backgroundColor: colors.divider }]}>
+              <View
+                style={[
+                  styles.metricBarFill,
+                  {
+                    width: `${Math.min(savingsRate, 100)}%`,
+                    backgroundColor: savingsBarColor,
+                  },
+                ]}
+              />
+            </View>
+          </View>
+
+          <View
+            style={[
+              styles.metricCard,
+              { backgroundColor: colors.card, borderColor: colors.border },
+            ]}
+          >
+            <Text style={[styles.metricValue, { color: colors.textPrimary }]}>
+              {categoryTotals.length}
+            </Text>
+            <Text style={[styles.metricLabel, { color: colors.textSecondary }]}>Spend categories</Text>
             <View style={styles.catDotsRow}>
               {categoryTotals.slice(0, 5).map((c) => {
                 const info = getCategoryInfo(c.category);
-                return <View key={c.category} style={[styles.catDot, { backgroundColor: info.color }]} />;
+                const dot =
+                  (colors.categories as Record<string, string>)[c.category] ?? info.color;
+                return <View key={c.category} style={[styles.catDot, { backgroundColor: dot }]} />;
               })}
             </View>
-          </FlatCard>
+          </View>
 
-          <FlatCard style={styles.metricCard}>
-            <Text style={styles.metricValue}>{transactions.length}</Text>
-            <Text style={styles.metricLabel}>Transactions</Text>
-            <Text style={styles.metricSub}>all time</Text>
-          </FlatCard>
+          <View
+            style={[
+              styles.metricCard,
+              { backgroundColor: colors.card, borderColor: colors.border },
+            ]}
+          >
+            <Text style={[styles.metricValue, { color: colors.textPrimary }]}>
+              {transactions.length}
+            </Text>
+            <Text style={[styles.metricLabel, { color: colors.textSecondary }]}>All-time txns</Text>
+            <Text style={[styles.metricSub, { color: colors.textTertiary }]}>Log for richer mix</Text>
+          </View>
         </View>
 
-        {/* Top Category Highlight */}
         {topCategoryInfo && topCategoryTotal && (
-          <FlatCard style={styles.topCatCard}>
+          <View
+            style={[
+              styles.topCatCard,
+              { backgroundColor: colors.card, borderColor: colors.border },
+            ]}
+          >
             <View style={styles.topCatLeft}>
-              <Text style={styles.topCatLabel}>Top Expense Category</Text>
-              <Text style={styles.topCatName}>{topCategoryInfo.label}</Text>
-              <Text style={styles.topCatAmount}>{formatCurrency(topCategoryTotal.amount)}</Text>
-              <Text style={styles.topCatCount}>{topCategoryTotal.count} transaction{topCategoryTotal.count !== 1 ? 's' : ''}</Text>
+              <Text style={[styles.topCatLabel, { color: colors.textSecondary }]}>
+                Highest spending category
+              </Text>
+              <Text style={[styles.topCatName, { color: colors.textPrimary }]}>{topCategoryInfo.label}</Text>
+              <Text style={[styles.topCatAmount, { color: colors.expense }]}>
+                {formatCurrency(topCategoryTotal.amount)}
+              </Text>
+              <Text style={[styles.topCatCount, { color: colors.textSecondary }]}>
+                {topCategoryTotal.count} transaction{topCategoryTotal.count !== 1 ? 's' : ''}
+              </Text>
             </View>
-            <View style={[styles.topCatIcon, { backgroundColor: `${topCategoryInfo.color}20` }]}>
-              <Ionicons name={topCategoryInfo.icon as any} size={36} color={topCategoryInfo.color} />
+            <View
+              style={[
+                styles.topCatIcon,
+                { backgroundColor: `${topCatThemeColor ?? topCategoryInfo.color}22` },
+              ]}
+            >
+              <Ionicons
+                name={topCategoryInfo.icon as keyof typeof Ionicons.glyphMap}
+                size={36}
+                color={topCatThemeColor ?? topCategoryInfo.color}
+              />
             </View>
-          </FlatCard>
+          </View>
         )}
 
-        {/* Charts */}
-        <CategoryPieChart data={categoryTotals} />
-        <WeeklyBar data={weeklyData} />
-        <MonthlyTrend data={monthlyTrend} />
+        <WeeklyBar data={weeklyData} periodLabel={monthLabel} isCurrentMonth={isCurrentMonth} />
+        <MonthlyTrend data={monthlyTrend} endingLabel={monthLabel} />
+        <CategoryRankBars data={categoryTotals} periodLabel={monthLabel} />
+        <CategoryPieChart data={categoryTotals} periodLabel={monthLabel} />
+        <TransactionMixCard mix={typeMix} periodLabel={monthLabel} />
 
-        {/* Smart Tips */}
         <View style={styles.tipsSection}>
-          <Text style={styles.tipsTitle}>Smart Tips</Text>
-          {tips.map((tip, index) => (
-            <FlatCard key={index} style={styles.tipCard}>
-              <View style={[styles.tipIcon, { backgroundColor: `${tip.color}20` }]}>
-                <Ionicons name={tip.icon as any} size={20} color={tip.color} />
+          <Text style={[styles.tipsTitle, { color: colors.textPrimary }]}>Smart tips</Text>
+          {tips.map((tip, index) => {
+            const tc = toneColor(tip.tone);
+            return (
+              <View
+                key={index}
+                style={[
+                  styles.tipCard,
+                  { backgroundColor: colors.card, borderColor: colors.border },
+                ]}
+              >
+                <View style={[styles.tipIcon, { backgroundColor: `${tc}22` }]}>
+                  <Ionicons name={tip.icon} size={20} color={tc} />
+                </View>
+                <View style={styles.tipText}>
+                  <Text style={[styles.tipTitle, { color: colors.textPrimary }]}>{tip.title}</Text>
+                  <Text style={[styles.tipBody, { color: colors.textSecondary }]}>{tip.body}</Text>
+                </View>
               </View>
-              <View style={styles.tipText}>
-                <Text style={styles.tipTitle}>{tip.title}</Text>
-                <Text style={styles.tipBody}>{tip.body}</Text>
-              </View>
-            </FlatCard>
-          ))}
+            );
+          })}
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -192,22 +359,35 @@ export function InsightsScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: COLORS.background },
+  container: { flex: 1 },
   scroll: { paddingBottom: SPACING.xxxl },
   header: {
     paddingHorizontal: SPACING.xl,
     paddingTop: SPACING.lg,
     paddingBottom: SPACING.xl,
+    gap: SPACING.sm,
   },
   title: {
     fontSize: FONTS.sizes.xxl,
-    fontWeight: '700',
-    color: COLORS.textPrimary,
+    fontWeight: '800',
   },
-  subtitle: {
-    fontSize: FONTS.sizes.sm,
-    color: COLORS.textSecondary,
-    marginTop: 2,
+  monthNav: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.md,
+    marginTop: SPACING.xs,
+  },
+  navBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: RADIUS.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  monthLabel: {
+    fontSize: FONTS.sizes.md,
+    fontWeight: '700',
+    letterSpacing: 0.3,
   },
   metricsRow: {
     flexDirection: 'row',
@@ -219,19 +399,21 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: SPACING.md,
     gap: SPACING.xs,
+    borderRadius: RADIUS.lg,
+    borderWidth: 1,
   },
   metricValue: {
     fontSize: FONTS.sizes.xl,
     fontWeight: '800',
-    color: COLORS.textPrimary,
   },
   metricLabel: {
     fontSize: FONTS.sizes.xs,
-    color: COLORS.textSecondary,
+    fontWeight: '600',
   },
   metricSub: {
-    fontSize: FONTS.sizes.xs,
-    color: COLORS.textTertiary,
+    fontSize: 10,
+    fontWeight: '500',
+    marginTop: 2,
   },
   metricBar: {
     height: 4,
@@ -247,6 +429,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 3,
     marginTop: SPACING.xs,
+    flexWrap: 'wrap',
   },
   catDot: {
     width: 8,
@@ -258,35 +441,36 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginHorizontal: SPACING.xl,
     marginBottom: SPACING.xl,
+    padding: SPACING.lg,
+    borderRadius: RADIUS.xl,
+    borderWidth: 1,
   },
   topCatLeft: { flex: 1 },
   topCatLabel: {
     fontSize: FONTS.sizes.xs,
-    color: COLORS.textSecondary,
+    fontWeight: '700',
     textTransform: 'uppercase',
-    letterSpacing: 0.8,
+    letterSpacing: 0.6,
     marginBottom: SPACING.xs,
   },
   topCatName: {
     fontSize: FONTS.sizes.xl,
-    fontWeight: '700',
-    color: COLORS.textPrimary,
+    fontWeight: '800',
   },
   topCatAmount: {
     fontSize: FONTS.sizes.lg,
-    fontWeight: '600',
-    color: COLORS.expense,
+    fontWeight: '700',
     marginTop: 2,
   },
   topCatCount: {
     fontSize: FONTS.sizes.xs,
-    color: COLORS.textSecondary,
+    fontWeight: '500',
     marginTop: 2,
   },
   topCatIcon: {
     width: 72,
     height: 72,
-    borderRadius: 20,
+    borderRadius: RADIUS.lg,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -295,8 +479,7 @@ const styles = StyleSheet.create({
   },
   tipsTitle: {
     fontSize: FONTS.sizes.lg,
-    fontWeight: '700',
-    color: COLORS.textPrimary,
+    fontWeight: '800',
     marginBottom: SPACING.md,
   },
   tipCard: {
@@ -305,6 +488,8 @@ const styles = StyleSheet.create({
     gap: SPACING.md,
     marginBottom: SPACING.sm,
     padding: SPACING.md,
+    borderRadius: RADIUS.lg,
+    borderWidth: 1,
   },
   tipIcon: {
     width: 40,
@@ -317,13 +502,12 @@ const styles = StyleSheet.create({
   tipText: { flex: 1 },
   tipTitle: {
     fontSize: FONTS.sizes.md,
-    fontWeight: '600',
-    color: COLORS.textPrimary,
+    fontWeight: '700',
     marginBottom: 4,
   },
   tipBody: {
     fontSize: FONTS.sizes.sm,
-    color: COLORS.textSecondary,
-    lineHeight: 18,
+    lineHeight: 20,
+    fontWeight: '500',
   },
 });

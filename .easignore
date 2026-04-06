@@ -1,0 +1,2 @@
+# Do not upload backend Go code to EAS Build (faster uploads; CI also skips backend).
+backend/

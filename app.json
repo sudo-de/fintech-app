@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "FinTrack",
+    "name": "FinTech App",
     "slug": "FinTechAPP",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -8,23 +8,21 @@
     "userInterfaceStyle": "dark",
     "newArchEnabled": true,
     "splash": {
-      "image": "./assets/splash-icon.png",
-      "resizeMode": "contain",
       "backgroundColor": "#0A0E21"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.fintechapp.mobile"
     },
     "android": {
+      "package": "com.fintechapp.mobile",
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
+        "foregroundImage": "./assets/icon.png",
         "backgroundColor": "#0A0E21"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
-    },
-    "web": {
-      "favicon": "./assets/favicon.png"
+      "predictiveBackGestureEnabled": false,
+      "usesCleartextTraffic": true
     }
   }
 }
